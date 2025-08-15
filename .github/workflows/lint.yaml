@@ -1,0 +1,32 @@
+name: Lint and build the project
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Setup Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      # NOTE: We need this because otherwise the build fails with:
+      #
+      #    bwrap: setting up uid map: Permission denied
+      - name: Disable AppArmor unprivileged userns restriction
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Build the project
+        run: nix build .
+
+      - name: Run checks
+        run: nix flake check
