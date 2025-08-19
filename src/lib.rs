@@ -132,6 +132,8 @@ pub mod ast {
             Question => "?",
             RightArrow => "->",
             Colon => ":",
+            At => "@",
+            Pipe => "|",
 
             GreaterThan => ">",
             GreaterThanOrEqual => ">=",
@@ -177,6 +179,7 @@ pub mod ast {
                     | ']'
                     | '{'
                     | '}'
+                    | '@'
             )
         }
     }
