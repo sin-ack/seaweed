@@ -1,77 +1,88 @@
 use thiserror::Error;
 
-pub mod ast {
-    /// List of keywords in the language in use.
-    #[derive(Debug, Eq, PartialEq)]
-    pub enum Keyword {
-        Abstract,
-        Class,
-        Else,
-        Extends,
-        For,
-        Function,
-        If,
-        Import,
-        Let,
-        Local,
-        Module,
-        New,
-        Open,
-        Outer,
-        Super,
-        This,
-        Typealias,
-        When,
-        // The following keywords only make sense in the context of builtin calls.
-        Trace,        // `trace()`
-        Throw,        // `throw()`
-        ImportGlob,   // `import*()`
-        Read,         // `read()`
-        ReadNullable, // `read?()`
-        ReadGlob,     // `read*()`
-        // The following keywords are reserved, but do not have any special meaning
-        // in the language.
-        Protected,
-        Override,
-        Record,
-        Delete,
-        Case,
-        Switch,
-        Vararg,
-    }
+macro_rules! string_enum {
+    (
+        $(#[$meta:meta])*
+        $name:ident, {
+            $($variant:ident => $val:expr),* $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(Eq, PartialEq)]
+        pub enum $name {
+            $($variant),*
+        }
 
-    impl Keyword {
-        pub(crate) fn from_str(identifier: &str) -> Option<Keyword> {
-            match identifier {
-                "abstract" => Some(Keyword::Abstract),
-                "class" => Some(Keyword::Class),
-                "else" => Some(Keyword::Else),
-                "extends" => Some(Keyword::Extends),
-                "for" => Some(Keyword::For),
-                "function" => Some(Keyword::Function),
-                "if" => Some(Keyword::If),
-                "import" => Some(Keyword::Import),
-                "let" => Some(Keyword::Let),
-                "local" => Some(Keyword::Local),
-                "module" => Some(Keyword::Module),
-                "new" => Some(Keyword::New),
-                "open" => Some(Keyword::Open),
-                "outer" => Some(Keyword::Outer),
-                "super" => Some(Keyword::Super),
-                "this" => Some(Keyword::This),
-                "typealias" => Some(Keyword::Typealias),
-                "when" => Some(Keyword::When),
-                // Builtin calls
-                "trace" => Some(Keyword::Trace),
-                "throw" => Some(Keyword::Throw),
-                "import*" => Some(Keyword::ImportGlob),
-                "read" => Some(Keyword::Read),
-                "read?" => Some(Keyword::ReadNullable),
-                "read*" => Some(Keyword::ReadGlob),
-                _ => None,
+        impl $name {
+            pub(crate) fn from_str(s: &str) -> Option<$name> {
+                match s {
+                    $(
+                        $val => Some($name::$variant),
+                    )*
+                    _ => None,
+                }
+            }
+
+            pub(crate) fn as_str(&self) -> &str {
+                match self {
+                    $(
+                        $name::$variant => $val,
+                    )*
+                }
             }
         }
 
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "\"{}\"", self.as_str())
+            }
+        }
+    };
+}
+
+pub mod ast {
+    string_enum!(
+        /// List of keywords in the language in use.
+        Keyword, {
+        Abstract => "abstract",
+        Class => "class",
+        Else => "else",
+        Extends => "extends",
+        For => "for",
+        Function => "function",
+        If => "if",
+        Import => "import",
+        Let => "let",
+        Local => "local",
+        Module => "module",
+        New => "new",
+        Open => "open",
+        Outer => "outer",
+        Super => "super",
+        This => "this",
+        Typealias => "typealias",
+        When => "when",
+
+        // The following keywords only make sense in the context of builtin calls.
+        Trace => "trace", // `trace()`
+        Throw => "throw", // `throw()`
+        ImportGlob => "import*", // `import*()`
+        Read => "read", // `read()`
+        ReadNullable => "read?", // `read?()`
+        ReadGlob => "read*", // `read*()`
+
+        // The following keywords are reserved, but do not have any special meaning
+        // in the language.
+        Protected => "protected",
+        Override => "override",
+        Record => "record",
+        Delete => "delete",
+        Case => "case",
+        Switch => "switch",
+        Vararg => "vararg"
+    });
+
+    impl Keyword {
         /// Return whether the keyword is a builtin call.
         pub fn is_builtin_call(&self) -> bool {
             matches!(
@@ -100,47 +111,48 @@ pub mod ast {
         }
     }
 
-    /// List of symbols in the language.
-    #[derive(Eq, PartialEq)]
-    pub enum Symbol {
-        Backslash, // `\`
-        Backtick,  // `` ` ``
-        Bang,      // `!`
-        Comma,     // `,`
-        Equals,    // `=`
-        Semicolon, // `;`
-        Newline,   // `\n`, alternative to `Semicolon`
+    string_enum!(
+        /// List of symbols in the language.
+        Symbol, {
+            Backslash => "\\",
+            Backtick => "`",
+            Bang => "!",
+            Comma => ",",
+            Equals => "=",
+            Semicolon => ";",
+            Newline => "\n", //alternative to "Semicolon"
 
-        DoubleQuote,       // `"`
-        TripleDoubleQuote, // `"""`
+            DoubleQuote => "\"",
+            TripleDoubleQuote => "\"\"\"",
 
-        Plus,         // `+`
-        Minus,        // `-`
-        Asterisk,     // `*`
-        ForwardSlash, // `/`
-        Percent,      // `%`
+            Plus => "+",
+            Minus => "-",
+            Asterisk => "*",
+            ForwardSlash => "/",
+            Percent => "%",
 
-        Period,     // `.`
-        Question,   // `?`
-        RightArrow, // `->`
-        Colon,      // `:`
+            Period => ".",
+            Question => "?",
+            RightArrow => "->",
+            Colon => ":",
 
-        GreaterThan,        // `>`
-        GreaterThanOrEqual, // `>=`
-        LessThan,           // `<`
-        LessThanOrEqual,    // `<=`
-        DoubleEquals,       // `==`
-        NotEquals,          // `!=`
-        DoubleAmpersand,    // `&&`
-        DoublePipe,         // `||`
+            GreaterThan => ">",
+            GreaterThanOrEqual => ">=",
+            LessThan => "<",
+            LessThanOrEqual => "<=",
+            DoubleEquals => "==",
+            NotEquals => "!=",
+            DoubleAmpersand => "&&",
+            DoublePipe => "||",
 
-        OpenParen,    // `(`
-        CloseParen,   // `)`
-        OpenBracket,  // `[`
-        CloseBracket, // `]`
-        OpenBrace,    // `{`
-        CloseBrace,   // `}`
-    }
+            OpenParen => "(",
+            CloseParen => ")",
+            OpenBracket => "[",
+            CloseBracket => "]",
+            OpenBrace => "{",
+            CloseBrace => "}",
+        }
+    );
     impl Symbol {
         pub(crate) fn is_symbol_char(ch: char) -> bool {
             matches!(
@@ -170,82 +182,6 @@ pub mod ast {
                     | '{'
                     | '}'
             )
-        }
-
-        pub(crate) fn from_str(symbol: &str) -> Option<Symbol> {
-            match symbol {
-                "\\" => Some(Symbol::Backslash),
-                "`" => Some(Symbol::Backtick),
-                "!" => Some(Symbol::Bang),
-                "," => Some(Symbol::Comma),
-                "=" => Some(Symbol::Equals),
-                ";" => Some(Symbol::Semicolon),
-                "\"" => Some(Symbol::DoubleQuote),
-                "\"\"\"" => Some(Symbol::TripleDoubleQuote),
-                "+" => Some(Symbol::Plus),
-                "-" => Some(Symbol::Minus),
-                "*" => Some(Symbol::Asterisk),
-                "/" => Some(Symbol::ForwardSlash),
-                "%" => Some(Symbol::Percent),
-                "." => Some(Symbol::Period),
-                "?" => Some(Symbol::Question),
-                "->" => Some(Symbol::RightArrow),
-                ":" => Some(Symbol::Colon),
-                ">" => Some(Symbol::GreaterThan),
-                ">=" => Some(Symbol::GreaterThanOrEqual),
-                "<" => Some(Symbol::LessThan),
-                "<=" => Some(Symbol::LessThanOrEqual),
-                "==" => Some(Symbol::DoubleEquals),
-                "!=" => Some(Symbol::NotEquals),
-                "&&" => Some(Symbol::DoubleAmpersand),
-                "||" => Some(Symbol::DoublePipe),
-                "(" => Some(Symbol::OpenParen),
-                ")" => Some(Symbol::CloseParen),
-                "[" => Some(Symbol::OpenBracket),
-                "]" => Some(Symbol::CloseBracket),
-                "{" => Some(Symbol::OpenBrace),
-                "}" => Some(Symbol::CloseBrace),
-                _ => None,
-            }
-        }
-    }
-
-    impl std::fmt::Debug for Symbol {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Symbol::Backslash => write!(f, "\\"),
-                Symbol::Backtick => write!(f, "`"),
-                Symbol::Bang => write!(f, "!"),
-                Symbol::Comma => write!(f, ","),
-                Symbol::Equals => write!(f, "="),
-                Symbol::Semicolon => write!(f, ";"),
-                Symbol::Newline => write!(f, "\\n"),
-                Symbol::DoubleQuote => write!(f, "\""),
-                Symbol::TripleDoubleQuote => write!(f, "\"\"\""),
-                Symbol::Plus => write!(f, "+"),
-                Symbol::Minus => write!(f, "-"),
-                Symbol::Asterisk => write!(f, "*"),
-                Symbol::ForwardSlash => write!(f, "/"),
-                Symbol::Percent => write!(f, "%"),
-                Symbol::Period => write!(f, "."),
-                Symbol::Question => write!(f, "?"),
-                Symbol::RightArrow => write!(f, "->"),
-                Symbol::Colon => write!(f, ":"),
-                Symbol::GreaterThan => write!(f, ">"),
-                Symbol::GreaterThanOrEqual => write!(f, ">="),
-                Symbol::LessThan => write!(f, "<"),
-                Symbol::LessThanOrEqual => write!(f, "<="),
-                Symbol::DoubleEquals => write!(f, "=="),
-                Symbol::NotEquals => write!(f, "!="),
-                Symbol::DoubleAmpersand => write!(f, "&&"),
-                Symbol::DoublePipe => write!(f, "||"),
-                Symbol::OpenParen => write!(f, "("),
-                Symbol::CloseParen => write!(f, ")"),
-                Symbol::OpenBracket => write!(f, "["),
-                Symbol::CloseBracket => write!(f, "]"),
-                Symbol::OpenBrace => write!(f, "{{"),
-                Symbol::CloseBrace => write!(f, "}}"),
-            }
         }
     }
 
