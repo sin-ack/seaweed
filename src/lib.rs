@@ -424,6 +424,18 @@ impl<'a> Tokenizer<'a> {
                         state = TokenizerState::String;
                     }
 
+                    Some('/') => {
+                        // Check if this is a comment.
+                        let next_ch = self.peek();
+                        match next_ch {
+                            Some('/') => {
+                                self.consume(); // Consume the second slash.
+                                state = TokenizerState::Comment;
+                            }
+                            _ => return Ok(ast::Token::Symbol(ast::Symbol::ForwardSlash)),
+                        }
+                    }
+
                     // A `)` might be a symbol, or it might be the end of an interpolated expression.
                     Some(')') => {
                         if let Some(TokenizerContext::InsideInterpolatedExpression) =
@@ -711,7 +723,16 @@ impl<'a> Tokenizer<'a> {
                 }
                 TokenizerState::EncounteredInterpolatedExpression => unreachable!(),
                 TokenizerState::MultilineString => todo!(),
-                TokenizerState::Comment => todo!(),
+                // TODO: Handle doc comments.
+                TokenizerState::Comment => {
+                    self.rewind(c.unwrap());
+                    // Consume the rest of the line.
+                    self.consume_while(|c| c != '\n');
+                    // Consume anything that's whitespace so that we can return
+                    // to Normal state.
+                    self.consume_while(|c| c.is_whitespace());
+                    state = TokenizerState::Normal;
+                }
             }
         }
     }
