@@ -529,7 +529,7 @@ impl<'a> Tokenizer<'a> {
                                     | std::num::IntErrorKind::NegOverflow => {
                                         return TokenizerError::IntLiteralTooLarge(
                                             number_buffer.clone(),
-                                        )
+                                        );
                                     }
                                     _ => panic!("Unexpected error while parsing integer: {err}"),
                                 }
@@ -600,7 +600,7 @@ impl<'a> Tokenizer<'a> {
                                     | std::num::IntErrorKind::NegOverflow => {
                                         return TokenizerError::IntLiteralTooLarge(
                                             number_buffer.clone(),
-                                        )
+                                        );
                                     }
                                     _ => panic!("Unexpected error while parsing integer: {err}"),
                                 }
@@ -627,7 +627,7 @@ impl<'a> Tokenizer<'a> {
                                     | std::num::IntErrorKind::NegOverflow => {
                                         return TokenizerError::IntLiteralTooLarge(
                                             number_buffer.clone(),
-                                        )
+                                        );
                                     }
                                     _ => panic!("Unexpected error while parsing integer: {err}"),
                                 }
@@ -654,7 +654,7 @@ impl<'a> Tokenizer<'a> {
                                     | std::num::IntErrorKind::NegOverflow => {
                                         return TokenizerError::IntLiteralTooLarge(
                                             number_buffer.clone(),
-                                        )
+                                        );
                                     }
                                     _ => panic!("Unexpected error while parsing integer: {err}"),
                                 }
