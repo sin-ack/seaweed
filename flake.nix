@@ -21,9 +21,8 @@
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
         src = pkgs.lib.cleanSource ./.;
-      in {
-        # nix build .
-        packages.default = pkgs.rustPlatform.buildRustPackage {
+
+        package = pkgs.rustPlatform.buildRustPackage {
           pname = "seaweed";
           version = "0.1.0";
 
@@ -33,6 +32,9 @@
             lockFile = ./Cargo.lock;
           };
         };
+      in {
+        # nix build .
+        packages.default = package;
 
         # nix run .#format
         apps.format = flake-utils.lib.mkApp {
@@ -53,6 +55,7 @@
           };
         };
 
+        checks.build = package;
         checks.nix-format =
           pkgs.runCommand "nix-format" {
             inherit src;
