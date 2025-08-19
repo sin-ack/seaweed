@@ -308,7 +308,7 @@ impl<'a> Tokenizer<'a> {
 
         let mut state = TokenizerState::Normal;
         let mut number_buffer = String::new();
-        'next_state: loop {
+        loop {
             let mut c = self.consume();
             match state {
                 TokenizerState::Normal => match c {
@@ -367,58 +367,51 @@ impl<'a> Tokenizer<'a> {
                         state = TokenizerState::Decimal;
                         number_buffer.push(c.unwrap());
                     }
-                    // Try to parse a symbol.
-                    Some(ch) => {
-                        match ch {
-                            // If a period is immediately followed by a digit, it is treated as a decimal point.
-                            '.' => {
-                                let next_ch = self.peek();
-                                match next_ch {
+                    // If a period is immediately followed by a digit, it is treated as a decimal point.
+                    Some('.') => {
+                        let next_ch = self.peek();
+                        match next_ch {
+                            Some('0'..='9') => {
+                                state = TokenizerState::Fractional;
+                                number_buffer.push('0');
+                                number_buffer.push('.');
+                            }
+                            // Otherwise, it is a symbol.
+                            _ => return Ok(ast::Token::Symbol(ast::Symbol::Period)),
+                        }
+                    }
+                    // If a minus sign is immediately followed by a digit, it is treated as a negative number.
+                    Some('-') => {
+                        let next_ch = self.peek();
+
+                        match next_ch {
+                            Some('0'..='9') => {
+                                number_buffer.push('-');
+                                // Let Normal state dispatch decide on what to do next.
+                            }
+                            Some('.') => {
+                                // This might be gibberish or it might be a negative float;
+                                // check one more character.
+                                self.consume();
+                                let next_next_ch = self.peek();
+                                match next_next_ch {
                                     Some('0'..='9') => {
-                                        state = TokenizerState::Fractional;
+                                        // Negative float.
+                                        number_buffer.push('-');
                                         number_buffer.push('0');
                                         number_buffer.push('.');
-                                        continue 'next_state;
+                                        state = TokenizerState::Fractional;
                                     }
-                                    // Otherwise, it is a symbol. Carry on with the symbol parsing.
-                                    _ => {}
+                                    // Nope, something else.
+                                    _ => self.rewind('.'),
                                 }
                             }
-                            // If a minus sign is immediately followed by a digit, it is treated as a negative number.
-                            '-' => {
-                                let next_ch = self.peek();
-
-                                match next_ch {
-                                    Some('0'..='9') => {
-                                        number_buffer.push('-');
-                                        // Let Normal state dispatch decide on what to do next.
-                                        continue 'next_state;
-                                    }
-                                    Some('.') => {
-                                        // This might be gibberish or it might be a negative float;
-                                        // check one more character.
-                                        self.consume();
-                                        let next_next_ch = self.peek();
-                                        match next_next_ch {
-                                            Some('0'..='9') => {
-                                                // Negative float.
-                                                number_buffer.push('-');
-                                                number_buffer.push('0');
-                                                number_buffer.push('.');
-                                                state = TokenizerState::Fractional;
-                                                continue 'next_state;
-                                            }
-                                            // Nope, something else.
-                                            _ => self.rewind('.'),
-                                        }
-                                    }
-                                    // Otherwise, it is a symbol. Carry on with the symbol parsing.
-                                    _ => {}
-                                }
-                            }
-                            _ => {}
+                            // Otherwise, it is a symbol.
+                            _ => return Ok(ast::Token::Symbol(ast::Symbol::Minus)),
                         }
-
+                    }
+                    // Try to parse a symbol.
+                    Some(ch) => {
                         self.rewind(ch);
                         let symbol_start_offset = self.offset;
 
