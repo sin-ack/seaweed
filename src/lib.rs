@@ -218,11 +218,18 @@ pub mod ast {
 }
 
 /// A context that can be pushed onto the tokenizer stack to change its behavior.
+#[derive(Clone, Copy)]
 enum TokenizerContext {
     /// The tokenizer is currently inside a string literal, and is tokenizing
     /// an interpolated expression (`\(...)`).
     /// When a `)` is encountered, the tokenizer will reset to the `String` state.
     InsideInterpolatedExpression,
+    /// The tokenizer is inside a custom-delimited string (`#"..."#`).
+    /// The value specifies how many #s were used to delimit the string.
+    /// In this mode, escapes are treated verbatim by default unless prefixed
+    /// with an equal number of #s (same for interpolated expressions), like
+    /// this: `##"\##n \##(expr)"##`.
+    InsideCustomDelimitedString(usize),
 }
 
 /// A simple tokenizer.
@@ -263,7 +270,7 @@ enum TokenizerState {
     Comment,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum TokenizerError {
     #[error("Unexpected character {0}.")]
     UnexpectedCharacter(String),
@@ -274,7 +281,7 @@ pub enum TokenizerError {
     #[error("Unexpected end of file.")]
     UnexpectedEndOfFile,
     #[error("Missing {0} delimiter.")]
-    MissingDelimiter(&'static str),
+    MissingDelimiter(String),
 }
 
 impl<'a> Tokenizer<'a> {
@@ -356,7 +363,8 @@ impl<'a> Tokenizer<'a> {
             // Out of tokens! If our context is clear, return an EOF token;
             // otherwise we shouldn't have hit this point.
             return match self.contexts.last() {
-                Some(TokenizerContext::InsideInterpolatedExpression) => {
+                Some(TokenizerContext::InsideInterpolatedExpression)
+                | Some(TokenizerContext::InsideCustomDelimitedString(_)) => {
                     Err(TokenizerError::UnexpectedEndOfFile)
                 }
                 None => Ok(ast::Token::Eof),
@@ -365,7 +373,7 @@ impl<'a> Tokenizer<'a> {
 
         let mut number_buffer = String::new();
         let mut string_buffer = String::new();
-        loop {
+        'next_state: loop {
             let mut c = self.consume();
             match state {
                 TokenizerState::Normal => match c {
@@ -425,6 +433,33 @@ impl<'a> Tokenizer<'a> {
 
                     Some('"') => {
                         state = TokenizerState::String;
+                    }
+                    Some('#') => {
+                        // Count up the number of `#` characters we have to
+                        // determine the custom delimiter.
+                        let mut count = 1;
+                        while let Some(next_ch) = self.consume() {
+                            match next_ch {
+                                '"' => {
+                                    // We have a custom-delimited string.
+                                    self.contexts
+                                        .push(TokenizerContext::InsideCustomDelimitedString(count));
+                                    state = TokenizerState::String;
+                                    continue 'next_state;
+                                }
+                                '#' => count += 1,
+                                _ => {
+                                    // Erm, what the spruce? That's an error.
+                                    return Err(TokenizerError::UnexpectedCharacter(
+                                        next_ch.to_string(),
+                                    ));
+                                }
+                            }
+                        }
+
+                        // We hit EOF while counting `#` characters, that's
+                        // an error.
+                        return Err(TokenizerError::UnexpectedEndOfFile);
                     }
 
                     Some('/') => {
@@ -682,11 +717,75 @@ impl<'a> Tokenizer<'a> {
                 TokenizerState::String => {
                     match c {
                         Some('"') => {
-                            // End of string literal.
+                            let last_context = self.contexts.last().map(|c| (*c).clone());
+                            // End of string literal..? A regular " won't cut
+                            // it if we're in a custom-delimited string.
+                            if let Some(TokenizerContext::InsideCustomDelimitedString(
+                                expected_hash_count,
+                            )) = last_context
+                            {
+                                let first_hash_offset = self.offset;
+                                // Check if we have enough `#` characters to match the delimiter.
+                                let mut hash_count = 0;
+                                while let Some(ch) = self.consume()
+                                    && ch == '#'
+                                    && hash_count < expected_hash_count
+                                {
+                                    hash_count += 1;
+                                }
+
+                                if hash_count < expected_hash_count {
+                                    // Not enough `#` characters, add the quote literally.
+                                    self.offset = first_hash_offset;
+                                    string_buffer.push('"');
+                                    continue 'next_state;
+                                }
+
+                                // Yep, actually the end of the string literal.
+                                // Pop that dang context.
+                                self.contexts.pop();
+                            }
+
                             return Ok(ast::Token::StringPart(string_buffer));
                         }
                         Some('\\') => {
-                            // Escape sequence, consume the next character.
+                            // Escape sequence..? Custom-delimited strings
+                            // allow for escapes to be verbatim, so we have
+                            // to check whether the escape is padded with the
+                            // necessary number of `#` characters.
+                            let last_context = self.contexts.last().map(|c| (*c).clone());
+                            if let Some(TokenizerContext::InsideCustomDelimitedString(
+                                expected_hash_count,
+                            )) = last_context
+                            {
+                                let first_hash_offset = self.offset;
+                                // Check if the escape is padded with the
+                                // necessary number of `#` characters.
+                                let mut hash_count = 0;
+                                let mut next_ch = self.consume();
+                                while let Some(ch) = next_ch
+                                    && ch == '#'
+                                    && hash_count < expected_hash_count
+                                {
+                                    hash_count += 1;
+                                    next_ch = self.consume();
+                                }
+
+                                if hash_count < expected_hash_count {
+                                    // Not enough `#` characters, add the backslash literally.
+                                    self.offset = first_hash_offset;
+                                    string_buffer.push('\\');
+                                    continue 'next_state;
+                                }
+
+                                // Turns out this _is_ a real escape sequence.
+                                // Rewind the last character (if any)
+                                // so that we can consume it below.
+                                if let Some(ch) = next_ch {
+                                    self.rewind(ch);
+                                }
+                            }
+
                             let next_ch = self.consume();
                             match next_ch {
                                 Some('n') => string_buffer.push('\n'),
@@ -715,7 +814,15 @@ impl<'a> Tokenizer<'a> {
                         }
                         // TODO: Implement multiline strings (`"""..."""`).
                         Some('\n') | None => {
-                            return Err(TokenizerError::MissingDelimiter("\""));
+                            let mut delimiter = String::new();
+                            delimiter.push('"');
+                            if let Some(TokenizerContext::InsideCustomDelimitedString(
+                                expected_hash_count,
+                            )) = self.contexts.last()
+                            {
+                                delimiter.push_str(&"#".repeat(*expected_hash_count));
+                            }
+                            return Err(TokenizerError::MissingDelimiter(delimiter));
                         }
 
                         Some(ch) => {
@@ -829,10 +936,10 @@ mod tests {
         let mut tokenizer = Tokenizer::new(r#""hello"#);
         let result = tokenizer.next_token();
         assert!(result.is_err());
-        assert!(matches!(
+        assert_eq!(
             result.unwrap_err(),
-            TokenizerError::MissingDelimiter("\"")
-        ));
+            TokenizerError::MissingDelimiter("\"".to_string())
+        );
     }
 
     #[test]
@@ -843,10 +950,10 @@ world""#,
         );
         let result = tokenizer.next_token();
         assert!(result.is_err());
-        assert!(matches!(
+        assert_eq!(
             result.unwrap_err(),
-            TokenizerError::MissingDelimiter("\"")
-        ));
+            TokenizerError::MissingDelimiter("\"".to_string())
+        );
     }
 
     #[test]
@@ -941,5 +1048,85 @@ world""#,
             result.unwrap_err(),
             TokenizerError::UnexpectedEndOfFile
         ));
+    }
+
+    #[test]
+    fn custom_delimited_string() {
+        let mut tokenizer = Tokenizer::new(r##"#"hello \n world"#"##);
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::StringPart(r#"hello \n world"#.to_string())
+        );
+    }
+
+    #[test]
+    fn custom_delimited_string_escapes() {
+        let mut tokenizer = Tokenizer::new(r###"##"weak aura: \#n STRONG aura: \##n"##"###);
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::StringPart("weak aura: \\#n STRONG aura: \n".to_string())
+        );
+    }
+
+    #[test]
+    fn custom_delimited_string_interpolation() {
+        let mut tokenizer = Tokenizer::new(
+            r###"##"\(this) isn't \t interpolated, neither is \#(this) but \##(this) is \##t interpolated"##"###,
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::StringPart(
+                "\\(this) isn't \\t interpolated, neither is \\#(this) but ".to_string()
+            )
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::InterpolatedExpressionStart
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::Keyword(ast::Keyword::This)
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::InterpolatedExpressionEnd
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::StringPart(" is \t interpolated".to_string())
+        );
+    }
+
+    #[test]
+    fn eof_after_pounds_is_error() {
+        let mut tokenizer = Tokenizer::new("###");
+        let result = tokenizer.next_token();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            TokenizerError::UnexpectedEndOfFile
+        ));
+    }
+
+    #[test]
+    fn anything_other_than_quote_after_pounds_is_error() {
+        let mut tokenizer = Tokenizer::new("##a");
+        let result = tokenizer.next_token();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            TokenizerError::UnexpectedCharacter("a".to_string())
+        );
+    }
+
+    #[test]
+    fn insufficient_pounds_to_terminate_custom_delimited_string_is_error() {
+        let mut tokenizer = Tokenizer::new(r###"##"hello"#"###);
+        let result = tokenizer.next_token();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            TokenizerError::MissingDelimiter("\"##".to_string())
+        );
     }
 }
