@@ -268,8 +268,6 @@ enum TokenizerState {
     MultilineString,
     /// Just encountered an interpolated expression in a string literal.
     EncounteredInterpolatedExpression,
-    /// In a comment.
-    Comment,
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -484,14 +482,34 @@ impl<'a> Tokenizer<'a> {
 
                     Some('/') => {
                         // Check if this is a comment.
-                        let next_ch = self.peek();
-                        match next_ch {
-                            Some('/') => {
-                                self.consume(); // Consume the second slash.
-                                state = TokenizerState::Comment;
+                        if self.peek() == Some('/') {
+                            self.consume();
+
+                            // Is there a *third* slash? That would be a doc comment.
+                            if self.peek() == Some('/') {
+                                self.consume();
+
+                                while let Some(ch) = self.consume() {
+                                    if ch == '\n' {
+                                        break;
+                                    }
+
+                                    string_buffer.push(ch);
+                                }
+
+                                return Ok(ast::Token::DocComment(string_buffer));
                             }
-                            _ => return Ok(ast::Token::Symbol(ast::Symbol::ForwardSlash)),
+
+                            // Consume the rest of the line as a regular comment.
+                            self.consume_while(|c| c != '\n');
+                            // Consume whitespace so that we can return to Normal state.
+                            self.consume_while(|c| c.is_whitespace());
+                            state = TokenizerState::Normal;
+                            continue 'next_state;
                         }
+
+                        // Just a regular forward slash, not a comment.
+                        return Ok(ast::Token::Symbol(ast::Symbol::ForwardSlash));
                     }
 
                     // If we're inside an interpolated expression, we count the
@@ -874,16 +892,6 @@ impl<'a> Tokenizer<'a> {
                 }
                 TokenizerState::EncounteredInterpolatedExpression => unreachable!(),
                 TokenizerState::MultilineString => todo!(),
-                // TODO: Handle doc comments.
-                TokenizerState::Comment => {
-                    self.rewind(c.unwrap());
-                    // Consume the rest of the line.
-                    self.consume_while(|c| c != '\n');
-                    // Consume anything that's whitespace so that we can return
-                    // to Normal state.
-                    self.consume_while(|c| c.is_whitespace());
-                    state = TokenizerState::Normal;
-                }
             }
         }
     }
@@ -1247,5 +1255,28 @@ world""#,
         let result = tokenizer.next_token();
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), TokenizerError::UnexpectedEndOfFile);
+    }
+
+    #[test]
+    fn comment() {
+        let mut tokenizer = Tokenizer::new("// this is a comment\n");
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
+    }
+
+    #[test]
+    fn whitespace_after_comment_doesnt_affect_tokenization() {
+        let mut tokenizer = Tokenizer::new("// this is a comment\n  \t123");
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Integer(123));
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
+    }
+
+    #[test]
+    fn doc_comment() {
+        let mut tokenizer = Tokenizer::new("/// this is a doc comment\n");
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::DocComment(" this is a doc comment".to_string())
+        );
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 }
