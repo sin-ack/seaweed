@@ -115,7 +115,6 @@ pub mod ast {
         /// List of symbols in the language.
         Symbol, {
             Backslash => "\\",
-            Backtick => "`",
             Bang => "!",
             Comma => ",",
             Equals => "=",
@@ -156,8 +155,7 @@ pub mod ast {
         pub(crate) fn is_symbol_char(ch: char) -> bool {
             matches!(
                 ch,
-                '\\' | '`'
-                    | '!'
+                '\\' | '!'
                     | ','
                     | '='
                     | ';'
@@ -463,6 +461,24 @@ impl<'a> Tokenizer<'a> {
 
                         // We hit EOF while counting `#` characters, that's
                         // an error.
+                        return Err(TokenizerError::UnexpectedEndOfFile);
+                    }
+
+                    // Identifiers can be delimited by backticks to allow using
+                    // reserved keywords or symbols as identifiers.
+                    Some('`') => {
+                        while let Some(ch) = self.consume() {
+                            if ch == '`' {
+                                // End of identifier.
+                                return Ok(ast::Token::Identifier(string_buffer));
+                            } else if ch == '\n' || ch == '\r' {
+                                // Newline in an identifier is an error.
+                                return Err(TokenizerError::UnexpectedCharacter(ch.to_string()));
+                            } else {
+                                string_buffer.push(ch);
+                            }
+                        }
+
                         return Err(TokenizerError::UnexpectedEndOfFile);
                     }
 
@@ -1190,5 +1206,46 @@ world""#,
             result.unwrap_err(),
             TokenizerError::MissingDelimiter("\"##".to_string())
         );
+    }
+
+    #[test]
+    fn quoted_identifier_allows_keywords() {
+        let mut tokenizer = Tokenizer::new("`function` `class`");
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::Identifier("function".to_string())
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::Identifier("class".to_string())
+        );
+    }
+
+    #[test]
+    fn quoted_identifier_allows_nonidentifier_chars() {
+        let mut tokenizer = Tokenizer::new("`™漬け海草🫃`");
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::Identifier("™漬け海草🫃".to_string())
+        );
+    }
+
+    #[test]
+    fn quoted_identifier_cannot_contain_newline() {
+        let mut tokenizer = Tokenizer::new("`function\nclass`");
+        let result = tokenizer.next_token();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            TokenizerError::UnexpectedCharacter("\n".to_string())
+        );
+    }
+
+    #[test]
+    fn eof_in_quoted_identifier_is_error() {
+        let mut tokenizer = Tokenizer::new("`function");
+        let result = tokenizer.next_token();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), TokenizerError::UnexpectedEndOfFile);
     }
 }
