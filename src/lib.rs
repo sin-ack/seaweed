@@ -222,8 +222,12 @@ pub mod ast {
 enum TokenizerContext {
     /// The tokenizer is currently inside a string literal, and is tokenizing
     /// an interpolated expression (`\(...)`).
-    /// When a `)` is encountered, the tokenizer will reset to the `String` state.
-    InsideInterpolatedExpression,
+    /// The value is the number of open parentheses that were encountered inside
+    /// the interpolated expression so far. Encountering a `(` increments it,
+    /// while encountering a `)` decrements it. If a `)`is encountered when
+    /// the value is 0, the tokenizer will reset to the `String` state and a
+    /// `InterpolatedExpressionEnd` token will be emitted.
+    InsideInterpolatedExpression(usize),
     /// The tokenizer is inside a custom-delimited string (`#"..."#`).
     /// The value specifies how many #s were used to delimit the string.
     /// In this mode, escapes are treated verbatim by default unless prefixed
@@ -352,7 +356,7 @@ impl<'a> Tokenizer<'a> {
                 // an `InterpolatedExpressionStart` token so that the parser
                 // knows that it has to expect an expression next.
                 self.contexts
-                    .push(TokenizerContext::InsideInterpolatedExpression);
+                    .push(TokenizerContext::InsideInterpolatedExpression(0));
                 return Ok(ast::Token::InterpolatedExpressionStart);
             }
             TokenizerState::String => {}
@@ -363,7 +367,7 @@ impl<'a> Tokenizer<'a> {
             // Out of tokens! If our context is clear, return an EOF token;
             // otherwise we shouldn't have hit this point.
             return match self.contexts.last() {
-                Some(TokenizerContext::InsideInterpolatedExpression)
+                Some(TokenizerContext::InsideInterpolatedExpression(_))
                 | Some(TokenizerContext::InsideCustomDelimitedString(_)) => {
                     Err(TokenizerError::UnexpectedEndOfFile)
                 }
@@ -474,19 +478,40 @@ impl<'a> Tokenizer<'a> {
                         }
                     }
 
+                    // If we're inside an interpolated expression, we count the
+                    // number of open parentheses we encounter.
+                    Some('(') => {
+                        if let Some(TokenizerContext::InsideInterpolatedExpression(
+                            open_paren_count,
+                        )) = self.contexts.last_mut()
+                        {
+                            // Increment the count of open parentheses.
+                            *open_paren_count += 1;
+                        }
+
+                        return Ok(ast::Token::Symbol(ast::Symbol::OpenParen));
+                    }
+
                     // A `)` might be a symbol, or it might be the end of an interpolated expression.
                     Some(')') => {
-                        if let Some(TokenizerContext::InsideInterpolatedExpression) =
-                            self.contexts.last()
+                        if let Some(TokenizerContext::InsideInterpolatedExpression(
+                            open_paren_count,
+                        )) = self.contexts.last_mut()
                         {
-                            // This is the end of an interpolated expression.
-                            self.contexts.pop();
-                            self.next_initial_state = TokenizerState::String;
-                            return Ok(ast::Token::InterpolatedExpressionEnd);
-                        } else {
-                            // This is just a symbol.
-                            return Ok(ast::Token::Symbol(ast::Symbol::CloseParen));
+                            if *open_paren_count == 0 {
+                                // This is the end of an interpolated expression.
+                                self.contexts.pop();
+                                self.next_initial_state = TokenizerState::String;
+                                return Ok(ast::Token::InterpolatedExpressionEnd);
+                            }
+
+                            // We have an open parenthesis in the interpolated
+                            // expression, so we decrement the count and return
+                            // a close parenthesis symbol.
+                            *open_paren_count -= 1;
                         }
+
+                        return Ok(ast::Token::Symbol(ast::Symbol::CloseParen));
                     }
 
                     // If a period is immediately followed by a digit, it is treated as a decimal point.
@@ -1023,6 +1048,43 @@ world""#,
         assert_eq!(
             tokenizer.next_token().unwrap(),
             ast::Token::StringPart(" waow".to_string())
+        );
+    }
+
+    #[test]
+    fn parentheses_inside_interpolated_expression_dont_break_it() {
+        let mut tokenizer = Tokenizer::new(r#""hello \(world (nested))""#);
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::StringPart("hello ".to_string())
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::InterpolatedExpressionStart
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::Identifier("world".to_string())
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::Symbol(ast::Symbol::OpenParen)
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::Identifier("nested".to_string())
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::Symbol(ast::Symbol::CloseParen)
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::InterpolatedExpressionEnd
+        );
+        assert_eq!(
+            tokenizer.next_token().unwrap(),
+            ast::Token::StringPart("".to_string())
         );
     }
 
