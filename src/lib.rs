@@ -909,6 +909,7 @@ mod tests {
         assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Integer(26));
         assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Integer(5));
         assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Integer(63));
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
@@ -942,6 +943,7 @@ mod tests {
         assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Float(5.67e-8));
         assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Float(0.1));
         assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Float(-0.5));
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
@@ -950,6 +952,7 @@ mod tests {
         assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Float(0.1));
         assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Float(0.2));
         assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Float(0.3));
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
@@ -964,6 +967,7 @@ mod tests {
             tokenizer.next_token().unwrap(),
             ast::Token::Identifier("functionality".to_string())
         );
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
@@ -978,6 +982,7 @@ mod tests {
             tokenizer.next_token().unwrap(),
             ast::Token::StringPart("world".to_string())
         );
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
@@ -1028,6 +1033,7 @@ world""#,
             tokenizer.next_token().unwrap(),
             ast::Token::StringPart("".to_string())
         );
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
@@ -1073,6 +1079,7 @@ world""#,
             tokenizer.next_token().unwrap(),
             ast::Token::StringPart(" waow".to_string())
         );
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
@@ -1110,6 +1117,7 @@ world""#,
             tokenizer.next_token().unwrap(),
             ast::Token::StringPart("".to_string())
         );
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
@@ -1143,6 +1151,7 @@ world""#,
             tokenizer.next_token().unwrap(),
             ast::Token::StringPart(r#"hello \n world"#.to_string())
         );
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
@@ -1152,6 +1161,7 @@ world""#,
             tokenizer.next_token().unwrap(),
             ast::Token::StringPart("weak aura: \\#n STRONG aura: \n".to_string())
         );
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
@@ -1181,6 +1191,7 @@ world""#,
             tokenizer.next_token().unwrap(),
             ast::Token::StringPart(" is \t interpolated".to_string())
         );
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
@@ -1227,6 +1238,7 @@ world""#,
             tokenizer.next_token().unwrap(),
             ast::Token::Identifier("class".to_string())
         );
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
@@ -1236,6 +1248,7 @@ world""#,
             tokenizer.next_token().unwrap(),
             ast::Token::Identifier("™漬け海草🫃".to_string())
         );
+        assert_eq!(tokenizer.next_token().unwrap(), ast::Token::Eof);
     }
 
     #[test]
