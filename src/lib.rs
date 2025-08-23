@@ -309,6 +309,17 @@ impl<'a> Tokenizer<'a> {
         ch
     }
 
+    /// Try to consume the given character from the input. Return whether
+    /// it was consumed.
+    fn try_consume(&mut self, ch: char) -> bool {
+        if self.peek() == Some(ch) {
+            self.offset += ch.len_utf8();
+            true
+        } else {
+            false
+        }
+    }
+
     /// Rewind the tokenizer by the given character.
     fn rewind(&mut self, ch: char) {
         self.offset -= ch.len_utf8();
@@ -482,13 +493,9 @@ impl<'a> Tokenizer<'a> {
 
                     Some('/') => {
                         // Check if this is a comment.
-                        if self.peek() == Some('/') {
-                            self.consume();
-
+                        if self.try_consume('/') {
                             // Is there a *third* slash? That would be a doc comment.
-                            if self.peek() == Some('/') {
-                                self.consume();
-
+                            if self.try_consume('/') {
                                 while let Some(ch) = self.consume() {
                                     if ch == '\n' {
                                         break;
